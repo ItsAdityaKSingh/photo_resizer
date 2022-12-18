@@ -2,6 +2,7 @@
 import 'package:dropdown_textfield/dropdown_textfield.dart';
 import 'package:exif/exif.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_phoenix/flutter_phoenix.dart';
 import 'package:image/image.dart' as im;
 import 'package:image_gallery_saver/image_gallery_saver.dart';
@@ -249,6 +250,7 @@ class _MyHomeState extends State<MyHome> {
                     SharedPreferences prefs = await SharedPreferences.getInstance();
                     print(bHeightController.dropDownValue!.value);
                     await prefs.setInt('bHeight', int.parse(bHeightController.dropDownValue!.value));
+                    SystemNavigator.pop();
                   },
                   child: const Text('Set'),
                 ),
