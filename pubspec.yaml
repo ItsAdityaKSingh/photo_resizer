@@ -41,6 +41,7 @@ dependencies:
   flutter_image_compress: ^1.0.0-nullsafety
   permission_handler: ^8.1.4+2
   image:
+  exif: ^3.1.2
   photo_gallery: ^1.1.1
   shared_preferences: ^2.0.15
   flutter_phoenix: ^1.1.0
@@ -49,6 +50,7 @@ dependencies:
   dropdown_textfield: ^1.0.7
   filesystem_picker: ^3.1.0
   file_picker:
+  image_compare: ^1.1.2
 
 
 dev_dependencies:

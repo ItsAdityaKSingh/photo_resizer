@@ -1,7 +1,6 @@
 //  ignore_for_file: avoid_print
 import 'package:dropdown_textfield/dropdown_textfield.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:filesystem_picker/filesystem_picker.dart';
+import 'package:exif/exif.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_phoenix/flutter_phoenix.dart';
 import 'package:image/image.dart' as im;
@@ -33,6 +32,8 @@ void onStart() async {
     print(image.path);
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.reload();
+    if (prefs.getBool('isOn')! == false) return;
+    print('done');
     print(prefs.getInt('bHeight'));
     int? bh = prefs.getInt('bHeight')!;
     im.Image? img = im.decodeJpg(File(image.path).readAsBytesSync());
@@ -40,7 +41,6 @@ void onStart() async {
     final f = await File('/data/user/0/com.example.photo_resizer/cache/y${DateTime.now()}.jpg').writeAsBytes(im.encodeJpg(thumbnail));
     ImageGallerySaver.saveFile(f.path).then((value) => print('Saved ✅'));
     File(image.path).deleteSync();
-
 
   }
 
@@ -50,13 +50,16 @@ void onStart() async {
       mediumType: MediumType.image,
     );
     final MediaPage imagePage = await (imageAlbums.where((element) => element.name == 'Camera')).toList()[0].listMedia();
+    print((await imagePage.items.first.getFile()).path);
     print((await imagePage.items.last.getFile()).path);
     return imagePage;
   }
 
   service.onDataReceived.listen((event) async {
     print(event!);
-    if (event.containsKey('action')) {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    if (event.containsKey('action') && prefs.getBool('isOn')!) {
       while(true){
         print('something');
         getImagesFromGallery().then((value) async {
@@ -108,17 +111,22 @@ class MyHome extends StatefulWidget {
 }
 
 class _MyHomeState extends State<MyHome> {
+  final Future<SharedPreferences> _prefs = SharedPreferences.getInstance();
 
   bool _loading = false;
   List _albums = [];
+  late Future<bool> isOn;
 
   @override
   void initState() {
     super.initState();
     _loading = true;
+    isOn = _prefs.then((SharedPreferences prefs) {
+      return prefs.getBool('isOn') ?? false;
+    });
     initAsync();
     requestPermission();
-    FlutterBackgroundService.initialize(onStart);
+    // FlutterBackgroundService.initialize(onStart);
   }
 
   void requestPermission() async {
@@ -155,8 +163,30 @@ class _MyHomeState extends State<MyHome> {
     return false;
   }
 
+  Future<void> swap(bool value) async {
+    final SharedPreferences prefs = await _prefs;
+    setState(() {
+      isOn = prefs.setBool('isOn', value).then((val) async {
+        if (value) {
+          FlutterBackgroundService.initialize(onStart);
+          FlutterBackgroundService().sendData({
+            'action': 'action'
+          });
+        }
+        return value;
+
+      });
+    });
+
+  }
+
   SingleValueDropDownController bHeightController = SingleValueDropDownController();
   SingleValueDropDownController heightController = SingleValueDropDownController();
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
 
 
   @override
@@ -166,6 +196,29 @@ class _MyHomeState extends State<MyHome> {
         appBar: AppBar(
           backgroundColor: Colors.black87,
           title: const Text('Image Resizer', style: TextStyle(color: Colors.white),),
+          actions: [
+            FutureBuilder(
+              future: isOn,
+              builder: (BuildContext context, AsyncSnapshot<bool> snapshot) {
+                switch (snapshot.connectionState) {
+                  case ConnectionState.waiting:
+                    return const CircularProgressIndicator();
+                  default:
+                    if (snapshot.hasError) {
+                      return Text('Error: ${snapshot.error}');
+                    } else {
+                      return Switch(
+                        value: snapshot.data!,
+                        onChanged: (value) async {
+                          print(value);
+                          await swap(value);
+                        },
+                      );
+                    }
+                }
+              }
+            ),
+          ],
         ),
         body: Padding(
           padding: const EdgeInsets.all(16.0),
@@ -194,14 +247,8 @@ class _MyHomeState extends State<MyHome> {
                 child: ElevatedButton(
                   onPressed: () async {
                     SharedPreferences prefs = await SharedPreferences.getInstance();
-                    FlutterBackgroundService().sendData({
-                      "noAction": "noAction"
-                    });
                     print(bHeightController.dropDownValue!.value);
                     await prefs.setInt('bHeight', int.parse(bHeightController.dropDownValue!.value));
-                    FlutterBackgroundService().sendData({
-                      "action": "action"
-                    });
                   },
                   child: const Text('Set'),
                 ),
@@ -228,21 +275,56 @@ class _MyHomeState extends State<MyHome> {
                 child: ElevatedButton(onPressed: () async {
                   SharedPreferences prefs = await SharedPreferences.getInstance();
                   await prefs.setInt('height', int.parse(heightController.dropDownValue!.value));
-                  // final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
-                  Directory appDocDir = Directory("storage/emulated/0");
-                  var result = await FilesystemPicker.open(fsType: FilesystemType.file ,allowedExtensions: [".png", ".jpg"],rootDirectory: appDocDir, context: context);
-                  if (result != null) {
-                    File file = File(result);
-                    print(file.parent.path); //// the path where the file is saved
-                    print(file.absolute.path);
-
-                    im.Image? image = im.decodeJpg(File(file.absolute.path).readAsBytesSync());
-                    int h = prefs.getInt('height')!;
-                    im.Image thumbnail = im.copyResize(image!, width: ((h/100)*image.width).round(), height: ((h/100)*image.height).round());
-                    final f = await File('/data/user/0/com.example.photo_resizer/cache/y${DateTime.now()}.png').writeAsBytes(im.encodePng(thumbnail));
-                    ImageGallerySaver.saveFile(f.path);
-                    File(file.absolute.path).deleteSync();
+                  final pickedFile = await ImagePicker().pickImage(requestFullMetadata:true, source: ImageSource.gallery);
+                  final List<Album> imageAlbums = await PhotoGallery.listAlbums(
+                    mediumType: MediumType.image,
+                  );
+                  final MediaPage imagePage = await (imageAlbums.where((element) => element.name == 'Camera')).toList()[0].listMedia();
+                  final data = await readExifFromBytes(File(pickedFile!.path).readAsBytesSync());
+                  print(data['EXIF DateTimeOriginal']);
+                  for (var image in imagePage.items.reversed.toList()) {
+                    print(await image.getFile());
+                    String s = data['EXIF DateTimeOriginal'].toString();
+                    String news = '';
+                    int i = 0;
+                    for (var element in s.runes) {
+                      var ch = String.fromCharCode(element);
+                      if (ch == ':' && i < 2) {
+                        news += '-';
+                        i++;
+                        continue;
+                      }
+                      else {
+                        news += ch;
+                      }
+                    }
+                    final d1 = DateTime.parse(news);
+                    final d2 = DateTime.parse(image.creationDate.toString());
+                    if (d1.difference(d2).inSeconds == 0) {
+                      File((await image.getFile()).path).deleteSync();
+                      break;
+                    }
                   }
+                  print(pickedFile.path);
+                  im.Image? image = im.decodeJpg(File(pickedFile.path).readAsBytesSync());
+                  int h = prefs.getInt('height')!;
+                  im.Image thumbnail = im.copyResize(image!, width: ((h/100)*image.width).round(), height: ((h/100)*image.height).round());
+                  final f = await File('/data/user/0/com.example.photo_resizer/cache/y${DateTime.now()}.png').writeAsBytes(im.encodePng(thumbnail));
+                  ImageGallerySaver.saveFile(f.path);
+                  // Directory appDocDir = Directory("storage/emulated/0");
+                  // var result = await FilesystemPicker.open(fsType: FilesystemType.file ,allowedExtensions: [".png", ".jpg"],rootDirectory: appDocDir, context: context);
+                  // if (result != null) {
+                  //   File file = File(result);
+                  //   print(file.parent.path); //// the path where the file is saved
+                  //   print(file.absolute.path);
+                  //
+                  //   im.Image? image = im.decodeJpg(File(file.absolute.path).readAsBytesSync());
+                  //   int h = prefs.getInt('height')!;
+                  //   im.Image thumbnail = im.copyResize(image!, width: ((h/100)*image.width).round(), height: ((h/100)*image.height).round());
+                  //   final f = await File('/data/user/0/com.example.photo_resizer/cache/y${DateTime.now()}.png').writeAsBytes(im.encodePng(thumbnail));
+                  //   ImageGallerySaver.saveFile(f.path);
+                  //   File(file.absolute.path).deleteSync();
+                  // }
                 }, child: const Text('Choose and Crop')),
               )
             ],
