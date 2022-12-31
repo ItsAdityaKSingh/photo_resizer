@@ -21,6 +21,50 @@ void main() async {
 
 }
 
+void requestPermission() async {
+  var status = await Permission.storage.status;
+  if (!status.isGranted) {
+    await Permission.storage.request();
+  }
+  var status1 = await Permission.manageExternalStorage.status;
+  if (!status1.isGranted) {
+    await Permission.manageExternalStorage.request();
+  }
+}
+
+Future<bool> initAsync() async {
+  if (Platform.isAndroid) {
+    PermissionStatus permissionStatus; // note do not use PermissionStatus? permissionStatus;
+
+    while (true) {
+      try {
+        permissionStatus = await Permission.storage.request();
+        break;
+      } catch (e) {
+        await Future.delayed(const Duration(milliseconds: 500), () {});
+      }
+    }
+    return true;
+  }
+  else {
+    bool p1 = await Permission.storage.request().isGranted;
+    if (p1) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+}
+
+Future<bool> _promptPermissionSetting() async {
+  if (Platform.isIOS && await Permission.storage.request().isGranted &&
+      await Permission.photos.request().isGranted ||
+      Platform.isAndroid && await Permission.storage.request().isGranted && await Permission.notification.request().isGranted) {
+    return true;
+  }
+  return false;
+}
+
 
 void onStart() async {
 
@@ -33,7 +77,6 @@ void onStart() async {
     print(image.path);
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.reload();
-    if (prefs.getBool('isOn')! == false) return;
     print('done');
     print(prefs.getInt('bHeight'));
     int? bh = prefs.getInt('bHeight')!;
@@ -60,9 +103,8 @@ void onStart() async {
     print(event!);
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.reload();
-    if (event.containsKey('action') && prefs.getBool('isOn')!) {
-      while(true){
-        print('something');
+    if (event.containsKey('action')) {
+      while (true) {
         getImagesFromGallery().then((value) async {
           if (value.items.length > prevLen) {
             await resizeImage((await value.items.last.getFile()));
@@ -88,8 +130,17 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
+late Future<bool> opened;
 class _MyAppState extends State<MyApp> {
 
+  @override
+  void initState() {
+    super.initState();
+    final prefs = SharedPreferences.getInstance();
+    opened = prefs.then((SharedPreferences prefs) {
+      return prefs.getBool('opened') ?? false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -99,10 +150,84 @@ class _MyAppState extends State<MyApp> {
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      home: MyHome()
+      home: FutureBuilder(
+      future: opened,
+      builder: (BuildContext context, AsyncSnapshot<bool> snapshot) {
+        switch (snapshot.connectionState) {
+          case ConnectionState.waiting:
+            return const CircularProgressIndicator();
+          default:
+            if (snapshot.hasError) {
+              return Text('Error: ${snapshot.error}');
+            } else {
+              if (snapshot.data!) {
+                return const MyHome();
+              } else {
+                return const Intro();
+              }
+            }
+        }
+      }
+    ),
     );
   }
 }
+
+class Intro extends StatelessWidget {
+  const Intro({Key? key}) : super(key: key);
+
+  Future<void> setOpen() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('opened', true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    setOpen();
+    FlutterBackgroundService.initialize(onStart);
+    FlutterBackgroundService().sendData({
+      'action': 'action'
+    });
+    return FutureBuilder(
+      future: initAsync(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.done) {
+          if (snapshot.hasError) {
+            return const Scaffold(
+              body: Center(
+                child: Text('An Error Occurred', style: TextStyle(
+                  fontSize: 20
+                ),),
+              ),
+            );
+          } else if (snapshot.hasData) {
+            return Scaffold(
+              body: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Image(
+                    image: AssetImage('assets/splash.jpeg'),
+                  ),
+                  const SizedBox(height: 30,),
+                  ElevatedButton(
+                    onPressed: (){
+                      Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MyHome()));
+                    },
+                    child: const Text('Next'),
+                  )
+                ],
+              ),
+            );
+          }
+        }
+        return const Scaffold(
+          backgroundColor: Colors.black,
+        );
+      }
+    );
+  }
+}
+
 
 class MyHome extends StatefulWidget {
   const MyHome({Key? key}) : super(key: key);
@@ -125,44 +250,14 @@ class _MyHomeState extends State<MyHome> {
     isOn = _prefs.then((SharedPreferences prefs) {
       return prefs.getBool('isOn') ?? false;
     });
-    initAsync();
     requestPermission();
+    FlutterBackgroundService.initialize(onStart);
+    FlutterBackgroundService().sendData({
+      'action': 'action'
+    });
     // FlutterBackgroundService.initialize(onStart);
   }
 
-  void requestPermission() async {
-    var status = await Permission.storage.status;
-    if (!status.isGranted) {
-      await Permission.storage.request();
-    }
-    var status1 = await Permission.manageExternalStorage.status;
-    if (!status1.isGranted) {
-      await Permission.manageExternalStorage.request();
-    }
-  }
-
-  Future<void> initAsync() async {
-    if (await _promptPermissionSetting()) {
-      List<Album> albums =
-      await PhotoGallery.listAlbums(mediumType: MediumType.image);
-      setState(() {
-        _albums = albums;
-        _loading = false;
-      });
-    }
-    setState(() {
-      _loading = false;
-    });
-  }
-
-  Future<bool> _promptPermissionSetting() async {
-    if (Platform.isIOS && await Permission.storage.request().isGranted &&
-        await Permission.photos.request().isGranted ||
-        Platform.isAndroid && await Permission.storage.request().isGranted && await Permission.manageExternalStorage.request().isGranted) {
-      return true;
-    }
-    return false;
-  }
 
   Future<void> swap(bool value) async {
     final SharedPreferences prefs = await _prefs;
@@ -197,28 +292,28 @@ class _MyHomeState extends State<MyHome> {
         appBar: AppBar(
           backgroundColor: Colors.black87,
           title: const Text('Image Resizer', style: TextStyle(color: Colors.white),),
-          actions: [
-            FutureBuilder(
-              future: isOn,
-              builder: (BuildContext context, AsyncSnapshot<bool> snapshot) {
-                switch (snapshot.connectionState) {
-                  case ConnectionState.waiting:
-                    return const CircularProgressIndicator();
-                  default:
-                    if (snapshot.hasError) {
-                      return Text('Error: ${snapshot.error}');
-                    } else {
-                      return Switch(
-                        value: snapshot.data!,
-                        onChanged: (value) async {
-                          print(value);
-                          await swap(value);
-                        },
-                      );
-                    }
-                }
-              }
-            ),
+          actions: const [
+            // FutureBuilder(
+            //   future: isOn,
+            //   builder: (BuildContext context, AsyncSnapshot<bool> snapshot) {
+            //     switch (snapshot.connectionState) {
+            //       case ConnectionState.waiting:
+            //         return const CircularProgressIndicator();
+            //       default:
+            //         if (snapshot.hasError) {
+            //           return Text('Error: ${snapshot.error}');
+            //         } else {
+            //           return Switch(
+            //             value: snapshot.data!,
+            //             onChanged: (value) async {
+            //               print(value);
+            //               await swap(value);
+            //             },
+            //           );
+            //         }
+            //     }
+            //   }
+            // ),
           ],
         ),
         body: Padding(
@@ -239,8 +334,8 @@ class _MyHomeState extends State<MyHome> {
                   enableSearch: true,
                   dropDownItemCount: 100,
                   dropDownList: [
-                    for (int i = 10; i <= 100; i+=10)
-                      DropDownValueModel(name: '$i%', value: i.toString())
+                    for (int i = 10; i <= 50; i+=10)
+                      DropDownValueModel(name: '${2*i}%', value: i.toString())
                   ],
                 ),
               ),
