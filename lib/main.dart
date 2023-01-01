@@ -80,6 +80,9 @@ void onStart() async {
     print('done');
     print(prefs.getInt('bHeight'));
     int? bh = prefs.getInt('bHeight')!;
+    if (bh == 20) {
+      bh = 30;
+    }
     im.Image? img = im.decodeJpg(File(image.path).readAsBytesSync());
     im.Image thumbnail = im.copyResize(img!, width: ((bh/100)*img.width).round(), height: ((bh/100)*img.height).round());
     final f = await File('/data/user/0/com.example.photo_resizer/cache/y${DateTime.now()}.jpg').writeAsBytes(im.encodeJpg(thumbnail));
