@@ -46,6 +46,9 @@ dependencies:
   flutter_phoenix: ^1.1.0
   image_picker:
   dropdown_textfield: ^1.0.7
+  flutter_local_notifications:
+  timezone:
+  google_mobile_ads:
 
 
 dev_dependencies:
